@@ -1,0 +1,3 @@
+PySide6==6.9.1
+gpiozero==2.0.1
+numpy==2.1.2

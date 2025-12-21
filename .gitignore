@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.log
+*.avi
+*.mp4
+*.png
+
+screenshots/*
+!screenshots/.gitkeep
+videos/*
+!videos/.gitkeep
