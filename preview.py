@@ -27,32 +27,13 @@ def build_25bit_word(address_bits: int, data_bits: int) -> int:
 
 
 class RX5808Tuner:
-    """LSB-first, latch on LE falling edge (same as main.py)."""
+    """LSB-first, latch on LE falling edge, LE_idle=1 (matches bruteforcer line 12)."""
     def __init__(self, pin_data: int, pin_clk: int, pin_le: int, le_idle: int = 1):
+        # Initialize like bruteforcer - all pins start False
         self.data = DigitalOutputDevice(pin_data, initial_value=False)
         self.clk  = DigitalOutputDevice(pin_clk,  initial_value=False)
-        self.le   = DigitalOutputDevice(pin_le,   initial_value=bool(le_idle))
+        self.le   = DigitalOutputDevice(pin_le,   initial_value=False)
         self.le_idle = bool(le_idle)
-
-    def hard_init(self, freq_mhz: int):
-        # Force known idle states
-        self.data.off()
-        self.clk.off()
-        self.le.on()   # LE idle HIGH (critical)
-
-        time.sleep(0.01)
-
-        # Send a few dummy clocks with LE high
-        for _ in range(10):
-            self.clk.on()
-            time.sleep(T)
-            self.clk.off()
-            time.sleep(T)
-
-        # Send a valid tune twice (any frequency)
-        self.tune_mhz(freq_mhz)
-        time.sleep(0.01)
-        self.tune_mhz(freq_mhz)
 
     def _sleep(self):
         time.sleep(T)
@@ -77,11 +58,13 @@ class RX5808Tuner:
         self._sleep()
 
     def tune_mhz(self, freq_mhz: int):
+        """Tune to frequency - matches bruteforcer approach (3 writes with 0.01s delay)."""
         data_bits = get_synth_register_b_freq_mhz(freq_mhz)
         word = build_25bit_word(SPI_ADDRESS_SYNTH_B, data_bits)
-        for _ in range(2):
+        # Match bruteforcer: send tune word 3 times with 0.01s delay
+        for _ in range(3):
             self.write_word(word)
-            time.sleep(0.005)
+            time.sleep(0.01)
 
 
 def build_gst_pipeline_mjpg(device="/dev/video0", width=800, height=600, fps=30) -> str:
@@ -113,18 +96,16 @@ def main():
         return
     
     print(f"Initializing RX5808 tuner...")
+    print(f"Configuration: DATA=CH1 (GPIO{PIN_DATA}), CLK=CH3 (GPIO{PIN_CLK}), LE=CH2 (GPIO{PIN_LE})")
+    print(f"  order=lsb, LE_idle=1, latch=falling")
     
-    # Initialize tuner
+    # Initialize tuner (matches bruteforcer line 12 configuration)
     tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
     
-    # Hard init and tune to frequency BEFORE opening video device
-    tuner.hard_init(FREQ_MHZ)
+    # Simple tune before opening video device (like bruteforcer does)
+    print(f"Tuning to {FREQ_MHZ} MHz...")
+    tuner.tune_mhz(FREQ_MHZ)
     time.sleep(0.2)
-    
-    # Apply tuning multiple times to ensure lock
-    for _ in range(3):
-        tuner.tune_mhz(FREQ_MHZ)
-        time.sleep(0.1)
     
     print(f"Starting video capture...")
     
