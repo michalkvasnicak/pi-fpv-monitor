@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import time
 import datetime
+import os
 from pathlib import Path
 
 import cv2
@@ -301,30 +302,49 @@ class MainWindow(QMainWindow):
         main_v.addStretch(0)
         main_v.addLayout(bottom_row)
 
+        # Wait for video device to be available (important after reboot)
+        video_device = "/dev/video0"
+        max_wait = 50  # Wait up to 5 seconds
+        for i in range(max_wait):
+            if os.path.exists(video_device):
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError(f"Video device {video_device} not found after waiting")
+
         # Initialize RX5808 tuner BEFORE starting video capture
         # This ensures the video device is properly tuned when capture starts
         name, mhz = CHANNELS[self.channel_idx]
         self.tuner.hard_init(mhz)
-        time.sleep(0.1)  # Give the tuner time to stabilize
+        time.sleep(0.2)  # Give the tuner time to stabilize
         
-        # Apply the channel tuning
-        self.tuner.tune_mhz(mhz)
-        time.sleep(0.2)  # Additional delay to let video device lock onto signal
+        # Apply the channel tuning multiple times to ensure lock
+        for _ in range(3):
+            self.tuner.tune_mhz(mhz)
+            time.sleep(0.1)
+        
+        time.sleep(0.5)  # Additional delay to let video device lock onto signal
 
         # Init capture AFTER tuner is ready
         if not self.restart_capture(record_path=None):
             raise RuntimeError("Failed to start GStreamer capture pipeline.")
 
-        # Timer for frames
+        # Warmup: Try to read a few frames to ensure video device is ready
+        # This is critical after reboot when the device needs time to initialize
+        self._warmup_frames = 0
+        self._warmup_timer = QTimer(self)
+        self._warmup_timer.timeout.connect(self._warmup_capture)
+        self._warmup_timer.start(50)  # Check every 50ms
+
+        # Timer for frames (will be started after warmup)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.tick)
-        self.timer.start(15)
 
         # Prime RX5808 after capture is up (helps after reboot / USB power timing)
         self._prime_tries = 0
         
         # Continue priming sequence for stability
-        QTimer.singleShot(300, self._start_radio_init_sequence)
+        QTimer.singleShot(500, self._start_radio_init_sequence)
 
         # Shortcuts
         self.addAction(self._make_action("A", lambda: self.step_channel(-1)))
@@ -332,6 +352,37 @@ class MainWindow(QMainWindow):
         self.addAction(self._make_action("F", self.toggle_fullscreen))
         self.addAction(self._make_action("S", self.screenshot))
         self.addAction(self._make_action("R", self.toggle_recording))
+
+    def _warmup_capture(self):
+        """Try to read frames from the video device until successful."""
+        if self.cap is None:
+            return
+        
+        ok, frame = self.cap.read()
+        if ok and frame is not None:
+            # Successfully read a frame, video device is ready
+            self._warmup_timer.stop()
+            self.last_frame = frame
+            # Start the main timer
+            self.timer.start(15)
+            # Update display immediately (use frame dimensions if label not sized yet)
+            w = self.video_label.width()
+            h = self.video_label.height()
+            if w <= 0 or h <= 0:
+                w, h = 1024, 600  # Use default size
+            out = letterbox(frame, w, h)
+            self.video_label.setPixmap(QPixmap.fromImage(bgr_to_qimage(out)))
+        else:
+            # Keep trying, but limit attempts
+            self._warmup_frames += 1
+            # Retune every 20 attempts (1 second) in case signal was lost
+            if self._warmup_frames % 20 == 0:
+                name, mhz = CHANNELS[self.channel_idx]
+                self.tuner.tune_mhz(mhz)
+            if self._warmup_frames >= 100:  # 5 seconds max (100 * 50ms)
+                # Give up and start timer anyway
+                self._warmup_timer.stop()
+                self.timer.start(15)
 
     def _start_radio_init_sequence(self):
         # Force a clean init AFTER RX5808 is powered
@@ -466,6 +517,12 @@ class MainWindow(QMainWindow):
             return False
 
         self.cap = cap
+        
+        # Retune RX5808 after opening video device (device opening might affect tuner state)
+        name, mhz = CHANNELS[self.channel_idx]
+        self.tuner.tune_mhz(mhz)
+        time.sleep(0.1)
+        
         return True
 
     def update_rec_label(self):
