@@ -27,16 +27,15 @@ def build_25bit_word(address_bits: int, data_bits: int) -> int:
 
 
 class RX5808Tuner:
-    """LSB-first, latch on LE falling edge, LE_idle=1 (matches bruteforcer line 12)."""
-    def __init__(self, pin_data: int, pin_clk: int, pin_le: int, le_idle: int = 1):
-        # Initialize pins - DATA/CLK start LOW (pull-downs), LE starts HIGH (pull-up)
+    """LSB-first, latch on LE rising edge, LE_idle=0 (confirmed working configuration)."""
+    def __init__(self, pin_data: int, pin_clk: int, pin_le: int, le_idle: int = 0):
+        # Initialize pins - DATA/CLK start LOW (pull-downs), LE starts LOW (le_idle=0)
         self.data = DigitalOutputDevice(pin_data, initial_value=False)
         self.clk  = DigitalOutputDevice(pin_clk,  initial_value=False)
-        # LE has pull-up resistor, so initialize to HIGH to match hardware state
         self.le   = DigitalOutputDevice(pin_le,   initial_value=bool(le_idle))
         self.le_idle = bool(le_idle)
         
-        # Ensure LE is in correct idle state immediately (important with pull-up)
+        # Ensure LE is in correct idle state immediately
         self.le.value = bool(le_idle)
         time.sleep(0.001)  # Brief delay to let pin settle
 
@@ -54,17 +53,17 @@ class RX5808Tuner:
             self._clk_pulse()
 
     def write_word(self, word: int):
-        """Write word - matches bruteforcer exactly for le_idle=1, latch=falling."""
-        # Set idle state first (important with pull-up resistor)
+        """Write word - matches confirmed working configuration: le_idle=0, latch=rising."""
+        # Set idle state first
         self.le.value = bool(self.le_idle)
         self._sleep()
-        # Keep LE high during shift (for falling latch)
-        self.le.on()
+        # Keep LE low during shift (for rising latch)
+        self.le.off()
         self._sleep()
         # Shift data bits
         self._shift_25_lsb_first(word)
-        # Drop LE to latch (falling edge)
-        self.le.off()
+        # Raise LE to latch (rising edge)
+        self.le.on()
         self._sleep()
         # Return to idle state
         self.le.value = bool(self.le_idle)
@@ -110,17 +109,17 @@ def main():
     
     print(f"Initializing RX5808 tuner...")
     print(f"Configuration: DATA=CH1 (GPIO{PIN_DATA}), CLK=CH3 (GPIO{PIN_CLK}), LE=CH2 (GPIO{PIN_LE})")
-    print(f"  order=lsb, LE_idle=1, latch=falling")
+    print(f"  order=lsb, LE_idle=0, latch=rising")
     
-    # Initialize tuner (matches bruteforcer line 12 configuration)
-    tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
+    # Initialize tuner (confirmed working configuration)
+    tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=0)
     
     # Ensure pins are in correct state (important with pull-ups/pull-downs)
     print("Setting initial pin states...")
     tuner.data.off()  # DATA pull-down
-    tuner.clk.off()   # CLK pull-down
-    tuner.le.on()     # LE pull-up (idle HIGH)
-    time.sleep(0.05)  # Let pins settle
+    tuner.clk.off()    # CLK pull-down
+    tuner.le.off()     # LE idle LOW (le_idle=0)
+    time.sleep(0.05)   # Let pins settle
     
     # Simple tune before opening video device (like bruteforcer does)
     print(f"Tuning to {FREQ_MHZ} MHz...")

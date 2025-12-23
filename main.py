@@ -49,8 +49,8 @@ def build_25bit_word(address_bits: int, data_bits: int) -> int:
     return (address_bits & 0x0F) | (1 << 4) | ((data_bits & 0xFFFF) << 5)
 
 class RX5808Tuner:
-    """LSB-first, latch on LE falling edge (your board)."""
-    def __init__(self, pin_data: int, pin_clk: int, pin_le: int, le_idle: int = 1):
+    """LSB-first, latch on LE rising edge, LE_idle=0 (confirmed working configuration)."""
+    def __init__(self, pin_data: int, pin_clk: int, pin_le: int, le_idle: int = 0):
         self.data = DigitalOutputDevice(pin_data, initial_value=False)
         self.clk  = DigitalOutputDevice(pin_clk,  initial_value=False)
         self.le   = DigitalOutputDevice(pin_le,   initial_value=bool(le_idle))
@@ -60,11 +60,11 @@ class RX5808Tuner:
         # Force known idle states
         self.data.off()
         self.clk.off()
-        self.le.on()   # LE idle HIGH (critical)
+        self.le.off()   # LE idle LOW (le_idle=0)
 
         time.sleep(0.01)
 
-        # Send a few dummy clocks with LE high
+        # Send a few dummy clocks with LE low
         for _ in range(10):
             self.clk.on()
             time.sleep(T)
@@ -90,12 +90,19 @@ class RX5808Tuner:
             self._clk_pulse()
 
     def write_word(self, word: int):
+        # Set idle state first
+        self.le.value = bool(self.le_idle)
+        self._sleep()
+        # Keep LE low during shift (for rising latch)
+        self.le.off()
+        self._sleep()
+        # Shift data bits
+        self._shift_25_lsb_first(word)
+        # Raise LE to latch (rising edge)
         self.le.on()
         self._sleep()
-        self._shift_25_lsb_first(word)
-        self.le.off()  # falling latch
-        self._sleep()
-        self.le.value = self.le_idle
+        # Return to idle state
+        self.le.value = bool(self.le_idle)
         self._sleep()
 
     def tune_mhz(self, freq_mhz: int):
@@ -182,7 +189,7 @@ class MainWindow(QMainWindow):
         VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
 
         # RX5808
-        self.tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
+        self.tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=0)
         self.channel_idx = next((i for i, (_, mhz) in enumerate(CHANNELS) if mhz == DEFAULT_FREQ_MHZ), 0)
 
         # State
