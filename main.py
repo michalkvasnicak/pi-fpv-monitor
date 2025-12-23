@@ -312,12 +312,27 @@ class MainWindow(QMainWindow):
         self.timer.timeout.connect(self.tick)
         self.timer.start(15)
 
+        # Prime RX5808 after capture is up (helps after reboot / USB power timing)
+        self._prime_tries = 0
+        self._prime_timer = QTimer(self)
+        self._prime_timer.timeout.connect(self._prime_rx5808)
+        self._prime_timer.start(200)  # retune every 200ms for a short window
+
         # Shortcuts
         self.addAction(self._make_action("A", lambda: self.step_channel(-1)))
         self.addAction(self._make_action("D", lambda: self.step_channel(+1)))
         self.addAction(self._make_action("F", self.toggle_fullscreen))
         self.addAction(self._make_action("S", self.screenshot))
         self.addAction(self._make_action("R", self.toggle_recording))
+
+    def _prime_rx5808(self):
+        # Retune multiple times to survive power-up timing / PLL weirdness
+        name, mhz = CHANNELS[self.channel_idx]
+        self.tuner.tune_mhz(mhz)
+
+        self._prime_tries += 1
+        if self._prime_tries >= 20:  # 20 * 200ms = 4 seconds
+            self._prime_timer.stop()
 
     def _make_action(self, key, fn):
         act = QAction(self)
