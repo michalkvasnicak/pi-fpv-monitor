@@ -532,10 +532,6 @@ class MainWindow(QMainWindow):
 
         self.cap = cap
         
-        # Retune RX5808 after opening video device (device opening might affect tuner state)
-        self.apply_channel()
-        time.sleep(0.1)
-        
         return True
 
     def update_rec_label(self):
@@ -613,8 +609,6 @@ class MainWindow(QMainWindow):
             }
         """)
 
-        QTimer.singleShot(200, self._start_radio_init_sequence)
-
     def stop_recording(self):
         if not self.recording:
             return
@@ -627,8 +621,6 @@ class MainWindow(QMainWindow):
         self.record_path = None
         self.btn_record_toggle.setText("Record")
         self.btn_record_toggle.setStyleSheet(self._pill_button_css())
-
-        QTimer.singleShot(200, self._start_radio_init_sequence)
 
     def screenshot(self):
         if self.last_frame is None:
