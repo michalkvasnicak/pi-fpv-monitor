@@ -7,6 +7,9 @@ import signal
 import sys
 import threading
 import time
+import select
+import tty
+import termios
 from gpiozero import DigitalOutputDevice
 
 # Import from bruteforcer
@@ -28,6 +31,9 @@ ffplay_process = None
 bruteforcer_thread = None
 bruteforcer_running = False
 bitbang_instances = []
+advance_to_next = False  # Flag to advance to next channel
+advance_lock = threading.Lock()  # Lock for thread-safe flag access
+terminal_settings = None  # Store terminal settings for restoration
 
 
 def reset_gpio_pins():
@@ -92,6 +98,22 @@ def reset_gpio_pins():
         print(f"Error during GPIO reset: {e}")
 
 
+def wait_for_advance_or_timeout(timeout_seconds=10):
+    """Wait for advance signal or timeout. Returns True if should advance."""
+    global advance_to_next
+    
+    start_time = time.time()
+    while time.time() - start_time < timeout_seconds:
+        with advance_lock:
+            if advance_to_next:
+                advance_to_next = False
+                return True
+        if not bruteforcer_running:
+            return False
+        time.sleep(0.1)  # Check every 100ms
+    return True  # Timeout reached, advance
+
+
 def run_bruteforcer():
     """Run the bruteforcer in a separate thread."""
     global bruteforcer_running, bitbang_instances
@@ -108,7 +130,8 @@ def run_bruteforcer():
     print("RX5808 brute-force tuner")
     print(f"Target frequency: {FREQ_MHZ} MHz")
     print("Your wiring (Pi GPIO BCM):", ch_pins)
-    print("Watch your video display. Press Ctrl+C when you see a good picture.\n")
+    print("Press 'n' to advance to next channel, or wait 10 seconds for auto-advance")
+    print("Press Ctrl+C when you see a good picture.\n")
     
     bruteforcer_running = True
     
@@ -164,9 +187,9 @@ def run_bruteforcer():
                         bb.cleanup()
                         bitbang_instances.remove(bb)
                         
-                        # Give you time to observe the screen
+                        # Wait for advance signal or timeout (10 seconds)
                         if bruteforcer_running:
-                            time.sleep(4)
+                            wait_for_advance_or_timeout(10)
     
     except Exception as e:
         print(f"\nBruteforcer error: {e}")
@@ -183,9 +206,16 @@ def run_bruteforcer():
 
 def cleanup_all():
     """Cleanup function called on exit."""
-    global ffplay_process, bruteforcer_running, bitbang_instances
+    global ffplay_process, bruteforcer_running, bitbang_instances, terminal_settings
     
     print("\nCleaning up...")
+    
+    # Restore terminal settings if needed
+    if terminal_settings is not None and sys.stdin.isatty():
+        try:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, terminal_settings)
+        except Exception:
+            pass
     
     # Stop bruteforcer
     bruteforcer_running = False
@@ -215,6 +245,44 @@ def cleanup_all():
     print("Cleanup complete.")
 
 
+def keyboard_input_handler():
+    """Handle keyboard input in a separate thread."""
+    global advance_to_next, terminal_settings
+    
+    # Save terminal settings
+    try:
+        terminal_settings = termios.tcgetattr(sys.stdin)
+    except Exception:
+        return  # Can't set terminal mode, skip keyboard input
+    
+    try:
+        # Set terminal to raw mode for immediate keypress detection
+        tty.setraw(sys.stdin.fileno())
+        
+        while bruteforcer_running:
+            # Check if there's input available (non-blocking)
+            try:
+                if select.select([sys.stdin], [], [], 0.1)[0]:
+                    char = sys.stdin.read(1)
+                    if char.lower() == 'n':
+                        with advance_lock:
+                            advance_to_next = True
+                        print("\n[Advancing to next channel...]", flush=True)
+                    elif char == '\x03':  # Ctrl+C
+                        break
+            except Exception:
+                break
+    except Exception:
+        pass
+    finally:
+        # Restore terminal settings
+        if terminal_settings is not None:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, terminal_settings)
+            except Exception:
+                pass
+
+
 def signal_handler(sig, frame):
     """Handle Ctrl+C."""
     cleanup_all()
@@ -242,7 +310,10 @@ def main():
     ]
     
     print("Starting ffplay and bruteforcer...")
+    print("Press 'n' to advance to next channel, or wait 10 seconds for auto-advance")
     print("Press Ctrl+C to stop and reset GPIO pins.\n")
+    
+    keyboard_thread = None
     
     try:
         # Start ffplay
@@ -251,6 +322,11 @@ def main():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
+        
+        # Start keyboard input handler (only if stdin is a TTY)
+        if sys.stdin.isatty():
+            keyboard_thread = threading.Thread(target=keyboard_input_handler, daemon=True)
+            keyboard_thread.start()
         
         # Start bruteforcer in a separate thread
         bruteforcer_thread = threading.Thread(target=run_bruteforcer, daemon=True)
