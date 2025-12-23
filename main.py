@@ -183,7 +183,6 @@ class MainWindow(QMainWindow):
         # RX5808
         self.tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
         self.channel_idx = next((i for i, (_, mhz) in enumerate(CHANNELS) if mhz == DEFAULT_FREQ_MHZ), 0)
-        self.tuner.hard_init(DEFAULT_FREQ_MHZ)
 
         # State
         self.cap = None
@@ -313,11 +312,9 @@ class MainWindow(QMainWindow):
 
         # Prime RX5808 after capture is up (helps after reboot / USB power timing)
         self._prime_tries = 0
-        self._prime_timer = QTimer(self)
-        self._prime_timer.timeout.connect(self._prime_rx5808)
-        self._prime_timer.start(200)  # retune every 200ms for a short window
-
-        QTimer.singleShot(800, self.apply_channel)
+        
+        # Now that USB is up, initialize + retune window
+        QTimer.singleShot(300, self._start_radio_init_sequence)
 
         # Shortcuts
         self.addAction(self._make_action("A", lambda: self.step_channel(-1)))
@@ -326,13 +323,26 @@ class MainWindow(QMainWindow):
         self.addAction(self._make_action("S", self.screenshot))
         self.addAction(self._make_action("R", self.toggle_recording))
 
+    def _start_radio_init_sequence(self):
+        # Force a clean init AFTER RX5808 is powered
+        self.tuner.hard_init(CHANNELS[self.channel_idx][1])
+
+        # Prime retunes (helps PLL lock / power timing)
+        self._prime_tries = 0
+        if not hasattr(self, "_prime_timer"):
+            self._prime_timer = QTimer(self)
+            self._prime_timer.timeout.connect(self._prime_rx5808)
+        self._prime_timer.start(200)
+
+        # Also apply the channel once a bit later
+        QTimer.singleShot(600, self.apply_channel)
+
+
     def _prime_rx5808(self):
-        # Retune multiple times to survive power-up timing / PLL weirdness
         name, mhz = CHANNELS[self.channel_idx]
         self.tuner.tune_mhz(mhz)
-
         self._prime_tries += 1
-        if self._prime_tries >= 20:  # 20 * 200ms = 4 seconds
+        if self._prime_tries >= 20:  # ~4 seconds
             self._prime_timer.stop()
 
     def _make_action(self, key, fn):
@@ -523,6 +533,8 @@ class MainWindow(QMainWindow):
             }
         """)
 
+        QTimer.singleShot(200, self._start_radio_init_sequence)
+
     def stop_recording(self):
         if not self.recording:
             return
@@ -535,6 +547,8 @@ class MainWindow(QMainWindow):
         self.record_path = None
         self.btn_record_toggle.setText("Record")
         self.btn_record_toggle.setStyleSheet(self._pill_button_css())
+
+        QTimer.singleShot(200, self._start_radio_init_sequence)
 
     def screenshot(self):
         if self.last_frame is None:
