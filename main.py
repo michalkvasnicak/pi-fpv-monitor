@@ -23,7 +23,7 @@ PIN_DATA = 17  # RX5808 CH1
 PIN_CLK  = 22  # RX5808 CH3
 PIN_LE   = 27  # RX5808 CH2
 
-T = 10e-6
+T = 20e-6
 SPI_ADDRESS_SYNTH_B = 0x01
 BITRATE = 3000 # lower to 2000 if you have a slow CPU
 
