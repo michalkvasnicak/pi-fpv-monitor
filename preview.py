@@ -96,13 +96,28 @@ def build_gst_pipeline_mjpg(device="/dev/video0", width=800, height=600, fps=30)
 
 
 def main():
+    import os
+    
     print("FPV Preview - Troubleshooting Mode")
-    print(f"Tuning RX5808 to {FREQ_MHZ} MHz...")
+    
+    # Wait for video device to be available (important after reboot)
+    video_device = "/dev/video0"
+    max_wait = 50  # Wait up to 5 seconds
+    print(f"Waiting for {video_device}...")
+    for i in range(max_wait):
+        if os.path.exists(video_device):
+            break
+        time.sleep(0.1)
+    else:
+        print(f"ERROR: Video device {video_device} not found after waiting")
+        return
+    
+    print(f"Initializing RX5808 tuner...")
     
     # Initialize tuner
     tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
     
-    # Hard init and tune to frequency
+    # Hard init and tune to frequency BEFORE opening video device
     tuner.hard_init(FREQ_MHZ)
     time.sleep(0.2)
     
@@ -111,9 +126,7 @@ def main():
         tuner.tune_mhz(FREQ_MHZ)
         time.sleep(0.1)
     
-    time.sleep(0.5)  # Let video device lock onto signal
-    
-    print("Starting video capture...")
+    print(f"Starting video capture...")
     
     # Build GStreamer pipeline
     pipeline = build_gst_pipeline_mjpg(
@@ -133,16 +146,48 @@ def main():
               "jpegdec ! videoconvert ! fakesink")
         return
     
+    # CRITICAL: Retune AFTER opening video device (device opening might affect tuner state)
+    print("Retuning after video device opened...")
+    for _ in range(3):
+        tuner.tune_mhz(FREQ_MHZ)
+        time.sleep(0.1)
+    
+    time.sleep(0.5)  # Let video device lock onto signal
+    
     print(f"Video feed active. Frequency: {FREQ_MHZ} MHz")
     print("Press 'q' to quit")
     
+    # Warmup: try to read a few frames
+    print("Warming up video capture...")
+    warmup_success = False
+    for i in range(50):  # Try for up to 5 seconds
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            warmup_success = True
+            print("Video capture ready!")
+            break
+        time.sleep(0.1)
+        # Retune periodically during warmup
+        if i % 10 == 0:
+            tuner.tune_mhz(FREQ_MHZ)
+    
+    if not warmup_success:
+        print("WARNING: Could not read frames during warmup, continuing anyway...")
+    
     try:
+        frame_count = 0
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("Warning: Failed to read frame")
+                frame_count += 1
+                # Retune periodically if we're not getting frames
+                if frame_count % 30 == 0:  # Every ~3 seconds at 10fps
+                    print("Retuning...")
+                    tuner.tune_mhz(FREQ_MHZ)
                 time.sleep(0.1)
                 continue
+            
+            frame_count = 0  # Reset counter on success
             
             # Display frame
             cv2.imshow("FPV Preview", frame)
