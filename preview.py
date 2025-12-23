@@ -29,11 +29,16 @@ def build_25bit_word(address_bits: int, data_bits: int) -> int:
 class RX5808Tuner:
     """LSB-first, latch on LE falling edge, LE_idle=1 (matches bruteforcer line 12)."""
     def __init__(self, pin_data: int, pin_clk: int, pin_le: int, le_idle: int = 1):
-        # Initialize like bruteforcer - all pins start False
+        # Initialize pins - DATA/CLK start LOW (pull-downs), LE starts HIGH (pull-up)
         self.data = DigitalOutputDevice(pin_data, initial_value=False)
         self.clk  = DigitalOutputDevice(pin_clk,  initial_value=False)
-        self.le   = DigitalOutputDevice(pin_le,   initial_value=False)
+        # LE has pull-up resistor, so initialize to HIGH to match hardware state
+        self.le   = DigitalOutputDevice(pin_le,   initial_value=bool(le_idle))
         self.le_idle = bool(le_idle)
+        
+        # Ensure LE is in correct idle state immediately (important with pull-up)
+        self.le.value = bool(le_idle)
+        time.sleep(0.001)  # Brief delay to let pin settle
 
     def _sleep(self):
         time.sleep(T)
@@ -49,12 +54,20 @@ class RX5808Tuner:
             self._clk_pulse()
 
     def write_word(self, word: int):
+        """Write word - matches bruteforcer exactly for le_idle=1, latch=falling."""
+        # Set idle state first (important with pull-up resistor)
+        self.le.value = bool(self.le_idle)
+        self._sleep()
+        # Keep LE high during shift (for falling latch)
         self.le.on()
         self._sleep()
+        # Shift data bits
         self._shift_25_lsb_first(word)
-        self.le.off()  # falling latch
+        # Drop LE to latch (falling edge)
+        self.le.off()
         self._sleep()
-        self.le.value = self.le_idle
+        # Return to idle state
+        self.le.value = bool(self.le_idle)
         self._sleep()
 
     def tune_mhz(self, freq_mhz: int):
@@ -102,10 +115,17 @@ def main():
     # Initialize tuner (matches bruteforcer line 12 configuration)
     tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
     
+    # Ensure pins are in correct state (important with pull-ups/pull-downs)
+    print("Setting initial pin states...")
+    tuner.data.off()  # DATA pull-down
+    tuner.clk.off()   # CLK pull-down
+    tuner.le.on()     # LE pull-up (idle HIGH)
+    time.sleep(0.05)  # Let pins settle
+    
     # Simple tune before opening video device (like bruteforcer does)
     print(f"Tuning to {FREQ_MHZ} MHz...")
     tuner.tune_mhz(FREQ_MHZ)
-    time.sleep(0.2)
+    time.sleep(0.3)  # Give tuner time to lock
     
     print(f"Starting video capture...")
     
@@ -128,12 +148,14 @@ def main():
         return
     
     # CRITICAL: Retune AFTER opening video device (device opening might affect tuner state)
-    print("Retuning after video device opened...")
-    for _ in range(3):
+    # Opening the video device can reset or affect the RX5808 tuner state
+    print("Retuning after video device opened (device may have affected tuner)...")
+    time.sleep(0.1)  # Brief delay after opening device
+    for i in range(5):  # More aggressive retuning
         tuner.tune_mhz(FREQ_MHZ)
-        time.sleep(0.1)
+        time.sleep(0.05)
     
-    time.sleep(0.5)  # Let video device lock onto signal
+    time.sleep(0.8)  # Give more time for video device to lock onto signal
     
     print(f"Video feed active. Frequency: {FREQ_MHZ} MHz")
     print("Press 'q' to quit")
