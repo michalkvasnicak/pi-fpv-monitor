@@ -301,7 +301,17 @@ class MainWindow(QMainWindow):
         main_v.addStretch(0)
         main_v.addLayout(bottom_row)
 
-        # Init tuner + capture
+        # Initialize RX5808 tuner BEFORE starting video capture
+        # This ensures the video device is properly tuned when capture starts
+        name, mhz = CHANNELS[self.channel_idx]
+        self.tuner.hard_init(mhz)
+        time.sleep(0.1)  # Give the tuner time to stabilize
+        
+        # Apply the channel tuning
+        self.tuner.tune_mhz(mhz)
+        time.sleep(0.2)  # Additional delay to let video device lock onto signal
+
+        # Init capture AFTER tuner is ready
         if not self.restart_capture(record_path=None):
             raise RuntimeError("Failed to start GStreamer capture pipeline.")
 
@@ -313,7 +323,7 @@ class MainWindow(QMainWindow):
         # Prime RX5808 after capture is up (helps after reboot / USB power timing)
         self._prime_tries = 0
         
-        # Now that USB is up, initialize + retune window
+        # Continue priming sequence for stability
         QTimer.singleShot(300, self._start_radio_init_sequence)
 
         # Shortcuts
