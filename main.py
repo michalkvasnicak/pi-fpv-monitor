@@ -519,8 +519,7 @@ class MainWindow(QMainWindow):
         self.cap = cap
         
         # Retune RX5808 after opening video device (device opening might affect tuner state)
-        name, mhz = CHANNELS[self.channel_idx]
-        self.tuner.tune_mhz(mhz)
+        self.apply_channel()
         time.sleep(0.1)
         
         return True
