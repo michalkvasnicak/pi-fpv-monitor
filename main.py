@@ -303,7 +303,6 @@ class MainWindow(QMainWindow):
         main_v.addLayout(bottom_row)
 
         # Init tuner + capture
-        self.apply_channel()
         if not self.restart_capture(record_path=None):
             raise RuntimeError("Failed to start GStreamer capture pipeline.")
 
@@ -317,6 +316,8 @@ class MainWindow(QMainWindow):
         self._prime_timer = QTimer(self)
         self._prime_timer.timeout.connect(self._prime_rx5808)
         self._prime_timer.start(200)  # retune every 200ms for a short window
+
+        QTimer.singleShot(800, self.apply_channel)
 
         # Shortcuts
         self.addAction(self._make_action("A", lambda: self.step_channel(-1)))
