@@ -200,25 +200,21 @@ class MainWindow(QMainWindow):
         self.record_start_monotonic = None
         self.rssi_percent = 0  # placeholder
 
-        # Root
+        # Root - use a container widget for absolute positioning
         root = QWidget()
         root.setStyleSheet("background: black;")
         self.setCentralWidget(root)
 
-        # Main layout (video + overlays)
-        main_v = QVBoxLayout(root)
-        main_v.setContentsMargins(0, 0, 0, 0)
-        main_v.setSpacing(0)
-
-        # Video
-        self.video_label = QLabel()
+        # Video label fills entire widget
+        self.video_label = QLabel(root)
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setStyleSheet("background-color: black;")
         self.video_label.setMinimumSize(QSize(1024, 600))
-        main_v.addWidget(self.video_label, stretch=1)
+        self.video_label.show()  # Ensure it's visible
 
-        # Top overlay row
-        top_row = QHBoxLayout()
+        # Top overlay row container
+        top_overlay = QWidget(root)
+        top_row = QHBoxLayout(top_overlay)
         top_row.setContentsMargins(10, 10, 10, 0)
         top_row.setSpacing(10)
 
@@ -258,8 +254,9 @@ class MainWindow(QMainWindow):
         top_row.addStretch(1)
         top_row.addWidget(self.lbl_rec, stretch=0, alignment=Qt.AlignRight | Qt.AlignTop)
 
-        # Bottom overlay row: left buttons + right buttons
-        bottom_row = QHBoxLayout()
+        # Bottom overlay row container
+        bottom_overlay = QWidget(root)
+        bottom_row = QHBoxLayout(bottom_overlay)
         bottom_row.setContentsMargins(10, 0, 10, 10)
         bottom_row.setSpacing(0)
 
@@ -304,10 +301,13 @@ class MainWindow(QMainWindow):
         bottom_row.addStretch(1)
         bottom_row.addLayout(right_stack)
 
-        # Add overlays into main layout
-        main_v.addLayout(top_row)
-        main_v.addStretch(0)
-        main_v.addLayout(bottom_row)
+        # Make overlay widgets transparent backgrounds so video shows through
+        top_overlay.setStyleSheet("background: transparent;")
+        bottom_overlay.setStyleSheet("background: transparent;")
+        
+        # Position overlays absolutely on top of video
+        top_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        bottom_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
 
         # Wait for video device to be available (important after reboot)
         video_device = "/dev/video0"
@@ -359,6 +359,13 @@ class MainWindow(QMainWindow):
         self.addAction(self._make_action("F", self.toggle_fullscreen))
         self.addAction(self._make_action("S", self.screenshot))
         self.addAction(self._make_action("R", self.toggle_recording))
+        
+        # Store overlay widgets for resize handling
+        self.top_overlay = top_overlay
+        self.bottom_overlay = bottom_overlay
+        
+        # Initial positioning
+        self._position_overlays()
 
     def _warmup_capture(self):
         """Try to read frames from the video device until successful."""
@@ -630,6 +637,39 @@ class MainWindow(QMainWindow):
         path = SCREENSHOTS_DIR / f"screenshot_{ts}.png"
         cv2.imwrite(str(path), self.last_frame)
 
+    def showEvent(self, event):
+        """Handle window show to position overlays after widget is sized."""
+        super().showEvent(event)
+        # Use QTimer to position overlays after window is fully shown
+        QTimer.singleShot(0, self._position_overlays)
+    
+    def resizeEvent(self, event):
+        """Handle window resize to reposition overlays."""
+        super().resizeEvent(event)
+        self._position_overlays()
+    
+    def _position_overlays(self):
+        """Position overlay widgets absolutely on top of video."""
+        root = self.centralWidget()
+        if root is None or root.width() <= 0 or root.height() <= 0:
+            return
+        
+        # Video label fills entire widget (bottom layer)
+        self.video_label.setGeometry(0, 0, root.width(), root.height())
+        self.video_label.lower()  # Ensure video is on bottom layer
+        
+        # Position top overlay at top
+        if hasattr(self, 'top_overlay') and self.top_overlay:
+            top_height = max(self.top_overlay.sizeHint().height(), 60)  # Minimum height
+            self.top_overlay.setGeometry(0, 0, root.width(), top_height)
+            self.top_overlay.raise_()  # Ensure overlay is on top
+        
+        # Position bottom overlay at bottom
+        if hasattr(self, 'bottom_overlay') and self.bottom_overlay:
+            bottom_height = max(self.bottom_overlay.sizeHint().height(), 100)  # Minimum height
+            self.bottom_overlay.setGeometry(0, root.height() - bottom_height, root.width(), bottom_height)
+            self.bottom_overlay.raise_()  # Ensure overlay is on top
+    
     def closeEvent(self, event):
         try:
             if self.cap is not None:
