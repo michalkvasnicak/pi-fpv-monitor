@@ -26,6 +26,7 @@ PIN_LE   = 27  # RX5808 CH2
 T = 20e-6
 SPI_ADDRESS_SYNTH_B = 0x01
 BITRATE = 3000 # lower to 2000 if you have a slow CPU
+DEFAULT_FREQ_MHZ = 5825
 
 CHANNELS = [
     ("A1", 5865), ("A2", 5845), ("A3", 5825), ("A4", 5805), ("A5", 5785), ("A6", 5765), ("A7", 5745), ("A8", 5725),
@@ -53,6 +54,26 @@ class RX5808Tuner:
         self.clk  = DigitalOutputDevice(pin_clk,  initial_value=False)
         self.le   = DigitalOutputDevice(pin_le,   initial_value=bool(le_idle))
         self.le_idle = bool(le_idle)
+
+    def hard_init(self, freq_mhz: int):
+        # Force known idle states
+        self.data.off()
+        self.clk.off()
+        self.le.on()   # LE idle HIGH (critical)
+
+        time.sleep(0.01)
+
+        # Send a few dummy clocks with LE high
+        for _ in range(10):
+            self.clk.on()
+            time.sleep(T)
+            self.clk.off()
+            time.sleep(T)
+
+        # Send a valid tune twice (any frequency)
+        self.tune_mhz(freq_mhz)
+        time.sleep(0.01)
+        self.tune_mhz(freq_mhz)
 
     def _sleep(self):
         time.sleep(T)
@@ -161,7 +182,8 @@ class MainWindow(QMainWindow):
 
         # RX5808
         self.tuner = RX5808Tuner(PIN_DATA, PIN_CLK, PIN_LE, le_idle=1)
-        self.channel_idx = next((i for i, (_, mhz) in enumerate(CHANNELS) if mhz == 5825), 0)
+        self.channel_idx = next((i for i, (_, mhz) in enumerate(CHANNELS) if mhz == DEFAULT_FREQ_MHZ), 0)
+        self.tuner.hard_init(DEFAULT_FREQ_MHZ)
 
         # State
         self.cap = None
