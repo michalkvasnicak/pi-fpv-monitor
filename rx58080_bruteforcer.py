@@ -5,6 +5,12 @@ from gpiozero import DigitalOutputDevice
 
 FREQ_MHZ = 5825
 
+# RUN WITH
+# 
+# ffplay -fflags nobuffer -flags low_delay -framedrop \
+#   -f v4l2 -input_format mjpeg -video_size 800x600 -framerate 30 \
+#   /dev/video0
+
 # Put here the *Pi GPIO (BCM) numbers* you physically wired to RX5808 CH1/CH2/CH3.
 # Example (you can change these):
 #   Pi GPIO17 -> RX CH1
