@@ -143,7 +143,7 @@ def main():
                         bb.cleanup()
 
                         # Give you time to observe the screen
-                        time.sleep(1.2)
+                        time.sleep(4)
 
     except KeyboardInterrupt:
         print("\nStopped. If you saw video, scroll up to the last printed configuration.")
