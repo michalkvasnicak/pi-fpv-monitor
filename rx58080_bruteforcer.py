@@ -38,9 +38,17 @@ def build_25bit_word(address_bits: int, data_bits: int) -> int:
 
 class BitBang:
     def __init__(self, pin_data: int, pin_clk: int, pin_le: int):
+        # Initialize pins - DATA/CLK start LOW (pull-downs), LE starts HIGH (pull-up)
         self.data = DigitalOutputDevice(pin_data, initial_value=False)
         self.clk  = DigitalOutputDevice(pin_clk,  initial_value=False)
-        self.le   = DigitalOutputDevice(pin_le,   initial_value=False)
+        # LE has pull-up resistor, so initialize to HIGH to match hardware state
+        self.le   = DigitalOutputDevice(pin_le,   initial_value=True)
+        
+        # Ensure pins are in correct initial state (important with pull-ups/pull-downs)
+        self.data.off()  # DATA pull-down
+        self.clk.off()  # CLK pull-down
+        self.le.on()    # LE pull-up (idle HIGH)
+        time.sleep(0.001)  # Brief delay to let pins settle
 
     def cleanup(self):
         try:
@@ -136,6 +144,10 @@ def main():
                         )
 
                         bb = BitBang(pin_data, pin_clk, pin_le)
+                        # Ensure pins are in correct state before tuning
+                        # (write_word will set LE to le_idle, but ensure DATA/CLK are LOW)
+                        bb.data.off()
+                        bb.clk.off()
                         # Send the tune word a few times to be safe
                         for _ in range(3):
                             bb.write_word(word, bit_order, le_idle, latch_edge)
