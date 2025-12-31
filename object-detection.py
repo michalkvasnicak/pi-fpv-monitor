@@ -42,7 +42,29 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     
+    # Control exposure settings to prevent overexposure
+    # Disable auto-exposure (set to manual mode)
+    # Value: 0.25 = manual mode, 0.75 = auto mode (varies by camera)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+    
+    # Set exposure value (lower = darker, higher = brighter)
+    # Typical range: -13 to -1 (logarithmic scale) or 1-10000 (linear scale)
+    # Start with a lower value to reduce overexposure
+    cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+    
+    # Set gain (amplification, lower = less noise but darker)
+    # Typical range: 0-100
+    cap.set(cv2.CAP_PROP_GAIN, 0)
+    
+    # Set brightness (0-100, default is often 50)
+    cap.set(cv2.CAP_PROP_BRIGHTNESS, 50)
+    
+    # Print current camera settings for debugging
     print("Camera opened successfully!")
+    print(f"Exposure: {cap.get(cv2.CAP_PROP_EXPOSURE)}")
+    print(f"Gain: {cap.get(cv2.CAP_PROP_GAIN)}")
+    print(f"Brightness: {cap.get(cv2.CAP_PROP_BRIGHTNESS)}")
+    print(f"Auto Exposure: {cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
     print("Press 'q' to quit")
 
     fps_t0 = time.time()
@@ -58,18 +80,11 @@ def main():
                 print("Error: Failed to read frame")
                 break
 
-            # Convert frame to grayscale
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
             # Run the model on the grayscale frame
-            results = ncnn_model(gray_frame)
+            results = ncnn_model(frame)
 
             # Visualize the results on the frame
             annotated_frame = results[0].plot()
-            
-            # Convert annotated frame to grayscale for display
-            if len(annotated_frame.shape) == 3:
-                annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2GRAY)
 
             # FPS counter
             frames += 1
