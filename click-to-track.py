@@ -340,7 +340,7 @@ def main():
     cap.set(cv2.CAP_PROP_BRIGHTNESS, 50)
 
     win = f"Robust Click-to-Track ({DET_NAME}) | click target | r reset | q quit"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+    cv2.namedWindow(win)
     cv2.setMouseCallback(win, on_mouse)
 
     fps_t0 = time.time()
