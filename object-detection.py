@@ -58,11 +58,18 @@ def main():
                 print("Error: Failed to read frame")
                 break
 
-            # Run the model on the frame
-            results = ncnn_model(frame)
+            # Convert frame to grayscale
+            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            # Run the model on the grayscale frame
+            results = ncnn_model(gray_frame)
 
             # Visualize the results on the frame
             annotated_frame = results[0].plot()
+            
+            # Convert annotated frame to grayscale for display
+            if len(annotated_frame.shape) == 3:
+                annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2GRAY)
 
             # FPS counter
             frames += 1
@@ -76,7 +83,7 @@ def main():
             cv2.putText(annotated_frame, f"FPS: {fps:.1f}", (10, annotated_frame.shape[0] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
-            # Display the frame
+            # Display the grayscale frame
             cv2.imshow('USB Camera Feed', annotated_frame)
             
             # Break loop on 'q' key press
