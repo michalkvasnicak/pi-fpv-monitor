@@ -2,3 +2,4 @@ PySide6==6.9.1
 gpiozero==2.0.1
 numpy>=1.23,<2
 ultralytics[export]==8.3.243
+opencv-contrib-python
