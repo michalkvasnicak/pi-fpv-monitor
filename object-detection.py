@@ -6,7 +6,8 @@ Displays video from a USB camera in a window.
 
 import cv2
 import sys
-from ultralytics import YOLO  
+from ultralytics import YOLO 
+import time 
 
 
 def main():
@@ -43,6 +44,10 @@ def main():
     
     print("Camera opened successfully!")
     print("Press 'q' to quit")
+
+    fps_t0 = time.time()
+    frames = 0
+    fps = 0.0
     
     try:
         while True:
@@ -58,6 +63,18 @@ def main():
 
             # Visualize the results on the frame
             annotated_frame = results[0].plot()
+
+            # FPS counter
+            frames += 1
+            dt = time.time() - fps_t0
+
+            if dt >= 0.5:
+                fps = frames / dt
+                fps_t0 = time.time()
+                frames = 0
+
+            cv2.putText(annotated_frame, f"FPS: {fps:.1f}", (10, annotated_frame.shape[0] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
             
             # Display the frame
             cv2.imshow('USB Camera Feed', annotated_frame)
