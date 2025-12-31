@@ -314,9 +314,30 @@ def track(gray):
 def main():
     global clicked, state, prev_gray, klt_pts, center, frame_count
 
-    cap = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    cap = cv2.VideoCapture("/dev/video0")
     if not cap.isOpened():
         raise RuntimeError("Could not open USB camera")
+
+    # Set camera properties (optional - adjust as needed)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, DISPLAY_W)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, DISPLAY_H)
+    
+    # Control exposure settings to prevent overexposure
+    # Disable auto-exposure (set to manual mode)
+    # Value: 0.25 = manual mode, 0.75 = auto mode (varies by camera)
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0.25)
+    
+    # Set exposure value (lower = darker, higher = brighter)
+    # Typical range: -13 to -1 (logarithmic scale) or 1-10000 (linear scale)
+    # Start with a lower value to reduce overexposure
+    cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+    
+    # Set gain (amplification, lower = less noise but darker)
+    # Typical range: 0-100
+    cap.set(cv2.CAP_PROP_GAIN, 0)
+    
+    # Set brightness (0-100, default is often 50)
+    cap.set(cv2.CAP_PROP_BRIGHTNESS, 50)
 
     win = f"Robust Click-to-Track ({DET_NAME}) | click target | r reset | q quit"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
