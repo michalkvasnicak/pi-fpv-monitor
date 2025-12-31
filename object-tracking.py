@@ -15,13 +15,23 @@ selected_person_box = None
 tracking_active = False
 tracker = None
 window_name = 'Person Detection & Tracking'
+frames_since_redetection = 0
 
 
 def mouse_callback(event, x, y, flags, param):
-    """Handle mouse clicks to select a person for tracking."""
-    global selected_person_box, tracking_active, tracker, current_detections, current_frame
+    """Handle mouse clicks to select a person for tracking or disable tracking."""
+    global selected_person_box, tracking_active, tracker, current_detections, current_frame, frames_since_redetection
     
     if event == cv2.EVENT_LBUTTONDOWN:
+        # If tracking is active, clicking anywhere disables tracking
+        if tracking_active:
+            tracking_active = False
+            tracker = None
+            selected_person_box = None
+            frames_since_redetection = 0
+            print("Tracking disabled")
+            return
+        
         # Find which person bounding box was clicked
         for box in current_detections:
             x1, y1, x2, y2 = box[:4]
@@ -53,6 +63,45 @@ def filter_person_detections(results):
                     person_detections.append([x1, y1, x2, y2, conf])
     
     return person_detections
+
+
+def find_closest_detection(detections, tracked_box):
+    """Find the detection closest to the tracked box (for re-detection updates)."""
+    if not detections or not tracked_box:
+        return None
+    
+    tx1, ty1, tx2, ty2 = tracked_box
+    tracked_center_x = (tx1 + tx2) / 2
+    tracked_center_y = (ty1 + ty2) / 2
+    tracked_area = (tx2 - tx1) * (ty2 - ty1)
+    
+    best_match = None
+    best_score = float('inf')
+    
+    for det in detections:
+        x1, y1, x2, y2, conf = det
+        center_x = (x1 + x2) / 2
+        center_y = (y1 + y2) / 2
+        area = (x2 - x1) * (y2 - y1)
+        
+        # Calculate distance between centers
+        center_distance = ((center_x - tracked_center_x)**2 + (center_y - tracked_center_y)**2)**0.5
+        
+        # Calculate area difference (normalized)
+        area_diff = abs(area - tracked_area) / max(area, tracked_area, 1)
+        
+        # Combined score (lower is better)
+        score = center_distance + area_diff * 100
+        
+        if score < best_score:
+            best_score = score
+            best_match = det
+    
+    # Only return if the match is reasonably close (within reasonable distance)
+    if best_match and best_score < 200:  # Threshold can be adjusted
+        return best_match
+    
+    return None
 
 
 def draw_person_detections(frame, detections, selected_box=None):
@@ -95,7 +144,7 @@ def draw_person_detections(frame, detections, selected_box=None):
 
 
 def main():
-    global selected_person_box, tracking_active, tracker, current_detections, current_frame
+    global selected_person_box, tracking_active, tracker, current_detections, current_frame, frames_since_redetection
     
     # Try to open the default camera (usually /dev/video0 on Linux or 0 on other systems)
     camera_index = 0
@@ -150,7 +199,8 @@ def main():
     print(f"Gain: {cap.get(cv2.CAP_PROP_GAIN)}")
     print(f"Brightness: {cap.get(cv2.CAP_PROP_BRIGHTNESS)}")
     print(f"Auto Exposure: {cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)}")
-    print("Click on a person to start tracking. Press 'q' to quit, 'r' to reset tracking.")
+    print("Click on a person to start tracking. Click anywhere to stop tracking.")
+    print("Press 'q' to quit, 'r' to reset tracking.")
     
     # Create window and set mouse callback
     cv2.namedWindow(window_name)
@@ -161,6 +211,10 @@ def main():
     fps = 0.0
     current_detections = []
     current_frame = None
+    
+    # Tracking state variables
+    frames_since_redetection = 0  # Reset global variable
+    REDETECTION_INTERVAL = 5  # Re-detect every 5 frames (~1 second at 5fps)
     
     try:
         while True:
@@ -173,11 +227,36 @@ def main():
 
             current_frame = frame.copy()
             
-            # Run detection only on person class
-            results = ncnn_model(frame, classes=[0])  # classes=[0] filters to person only
+            # Only run detection if not tracking, or periodically when tracking
+            should_detect = False
+            if not tracking_active:
+                # Always detect when not tracking
+                should_detect = True
+            else:
+                # When tracking, only detect periodically for re-detection
+                frames_since_redetection += 1
+                if frames_since_redetection >= REDETECTION_INTERVAL:
+                    should_detect = True
+                    frames_since_redetection = 0
             
-            # Filter to get person detections
-            current_detections = filter_person_detections(results)
+            if should_detect:
+                # Run detection only on person class
+                results = ncnn_model(frame, classes=[0])  # classes=[0] filters to person only
+                # Filter to get person detections
+                current_detections = filter_person_detections(results)
+                
+                # If tracking is active, try to update tracker with better bounding box
+                if tracking_active and tracker is not None and selected_person_box and current_detections:
+                    closest_det = find_closest_detection(current_detections, selected_person_box)
+                    if closest_det:
+                        # Re-initialize tracker with updated bounding box from detection
+                        x1, y1, x2, y2, conf = closest_det
+                        x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+                        tracker = cv2.TrackerCSRT_create()
+                        bbox = (x1, y1, x2 - x1, y2 - y1)
+                        tracker.init(frame, bbox)
+                        selected_person_box = [x1, y1, x2, y2]
+                        print(f"Re-detected and updated tracker: ({x1}, {y1}, {x2}, {y2})")
             
             # Create annotated frame
             annotated_frame = frame.copy()
@@ -195,9 +274,11 @@ def main():
                     tracking_active = False
                     tracker = None
                     selected_person_box = None
+                    frames_since_redetection = 0
             
-            # Draw all person detections (tracked person will be highlighted in green)
-            annotated_frame = draw_person_detections(annotated_frame, current_detections, selected_person_box)
+            # Draw all person detections (only show when not tracking or during re-detection)
+            if not tracking_active:
+                annotated_frame = draw_person_detections(annotated_frame, current_detections, selected_person_box)
             
             # If tracking, also draw a prominent tracking box
             if tracking_active and selected_person_box:
@@ -224,6 +305,9 @@ def main():
             if not tracking_active:
                 cv2.putText(annotated_frame, "Click on a person to track", (10, 30),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            else:
+                cv2.putText(annotated_frame, "Click anywhere to stop tracking", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
             
             # Display the frame
             cv2.imshow(window_name, annotated_frame)
@@ -237,6 +321,7 @@ def main():
                 tracking_active = False
                 tracker = None
                 selected_person_box = None
+                frames_since_redetection = 0
                 print("Tracking reset")
     
     except KeyboardInterrupt:
