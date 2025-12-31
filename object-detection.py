@@ -6,12 +6,22 @@ Displays video from a USB camera in a window.
 
 import cv2
 import sys
+from ultralytics import YOLO  
 
 
 def main():
     # Try to open the default camera (usually /dev/video0 on Linux or 0 on other systems)
     # You can change this to a specific device path or index if needed
     camera_index = 0
+
+    # Load a YOLO11n PyTorch model
+    model = YOLO("yolo11n.pt")
+
+    # Export the model to NCNN format
+    model.export(format="ncnn")  # creates 'yolo11n_ncnn_model'
+
+    # Load the exported NCNN model
+    ncnn_model = YOLO("yolo11n_ncnn_model")
     
     # Try /dev/video0 first (common on Linux/Raspberry Pi)
     if sys.platform.startswith('linux'):
@@ -42,9 +52,15 @@ def main():
             if not ret:
                 print("Error: Failed to read frame")
                 break
+
+            # Run the model on the frame
+            results = ncnn_model(frame)
+
+            # Visualize the results on the frame
+            annotated_frame = results[0].plot()
             
             # Display the frame
-            cv2.imshow('USB Camera Feed', frame)
+            cv2.imshow('USB Camera Feed', annotated_frame)
             
             # Break loop on 'q' key press
             if cv2.waitKey(1) & 0xFF == ord('q'):
