@@ -3,9 +3,9 @@ import cv2
 import numpy as np
 import time
 
-# -------------------- Tunables --------------------
-DISPLAY_W, DISPLAY_H = 960, 540     # display/processing size (downscale improves robustness + speed)
-PATCH_RADIUS = 50                  # click -> template patch radius (patch size = 2R+1)
+# -------------------- Tunabales --------------------
+DISPLAY_W, DISPLAY_H = 640, 480     # display/processing size (downscale improves robustness + speed)
+PATCH_RADIUS = 100                  # click -> template patch radius (patch size = 2R+1)
 KLT_MAX_CORNERS = 200
 KLT_QUALITY = 0.01
 KLT_MIN_DIST = 5
